@@ -12,6 +12,13 @@ export default function ReviewFlow() {
   
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaPreview, setMediaPreview] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
   const [showPositiveFeedbackScreen, setShowPositiveFeedbackScreen] = useState(false);
   const [generatedFeedback, setGeneratedFeedback] = useState('');
   const [generatingReview, setGeneratingReview] = useState(false);
