@@ -12,12 +12,10 @@ export default function ReviewFlow() {
   
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
-  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
-  const [feedback, setFeedback] = useState('');
-  const [mediaFile, setMediaFile] = useState(null);
-  const [mediaPreview, setMediaPreview] = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [showPositiveFeedbackScreen, setShowPositiveFeedbackScreen] = useState(false);
+  const [generatedFeedback, setGeneratedFeedback] = useState('');
+  const [generatingReview, setGeneratingReview] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     // Fetch funnel and log scan
@@ -37,16 +35,55 @@ export default function ReviewFlow() {
     setRating(selectedRating);
     
     if (selectedRating >= 4) {
-      // 4-5 stars: Track redirect and send to Google
-      try {
-        await axios.post(`${API_BASE}/public_track_redirect.php`, { funnel_id: funnel.id });
-      } catch (e) { console.error(e); }
+      // 4-5 stars: Show positive feedback screen and generate AI review
+      setShowPositiveFeedbackScreen(true);
+      setGeneratingReview(true);
       
-      window.location.href = funnel.google_review_url;
+      try {
+        const aiRes = await axios.post(`${API_BASE}/public_generate_review.php`, { 
+          business_name: funnel.business_name 
+        });
+        if (aiRes.data.success) {
+          setGeneratedFeedback(aiRes.data.data.text);
+        } else {
+          setGeneratedFeedback(`I had a fantastic experience with ${funnel.business_name || 'this business'}. Highly recommended!`);
+        }
+      } catch (e) { 
+        console.error(e);
+        setGeneratedFeedback(`I had a fantastic experience with ${funnel.business_name || 'this business'}. Highly recommended!`);
+      }
+      
+      setGeneratingReview(false);
     } else {
       // 1-3 stars: Show private feedback form
       setShowFeedbackForm(true);
     }
+  };
+
+  const handleCopyAndRedirect = async () => {
+    // Copy to clipboard
+    try {
+      await navigator.clipboard.writeText(generatedFeedback);
+      setCopied(true);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+
+    // Track redirect
+    try {
+      await axios.post(`${API_BASE}/public_track_redirect.php`, { funnel_id: funnel.id });
+    } catch (e) { console.error(e); }
+    
+    // Redirect
+    let redirectUrl = funnel.google_review_url;
+    if (!redirectUrl.match(/^https?:\/\//i)) {
+      redirectUrl = 'https://' + redirectUrl;
+    }
+    
+    // Slight delay so they see "Copied!" before navigating away
+    setTimeout(() => {
+      window.location.href = redirectUrl;
+    }, 800);
   };
 
   const handleMediaChange = (e) => {
@@ -142,7 +179,7 @@ export default function ReviewFlow() {
       </div>
 
       <div className="flex-1 p-5 overflow-y-auto">
-        {!showFeedbackForm ? (
+        {!showFeedbackForm && !showPositiveFeedbackScreen ? (
           <div className="flex flex-col items-center justify-center h-full pt-10">
             <h2 className="text-2xl font-medium text-gray-900 mb-8 text-center">Rate and review</h2>
             <div className="flex gap-2">
@@ -164,6 +201,58 @@ export default function ReviewFlow() {
                 </button>
               ))}
             </div>
+          </div>
+        ) : showPositiveFeedbackScreen ? (
+          <div className="animate-fade-in flex flex-col items-center h-full pt-4">
+            <div className="flex justify-center gap-1 mb-6">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <div key={star} className="p-1">
+                  <Star className={`w-8 h-8 stroke-1 ${rating >= star ? 'fill-yellow-400 text-yellow-400' : 'fill-transparent text-gray-300'}`} />
+                </div>
+              ))}
+            </div>
+
+            <h2 className="text-xl font-medium text-gray-900 mb-2 text-center">We love you too!</h2>
+            <p className="text-gray-500 text-sm text-center mb-6">
+              To make it easy, we generated a glowing review for you. Feel free to edit it, then copy and paste it on Google!
+            </p>
+
+            {generatingReview ? (
+              <div className="w-full h-32 flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-gray-200 mb-6">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mb-3"></div>
+                <p className="text-sm text-gray-500">AI is writing your review...</p>
+              </div>
+            ) : (
+              <textarea
+                className="w-full h-32 p-4 text-[15px] resize-none outline-none border border-blue-200 focus:border-blue-500 rounded-xl shadow-sm mb-6 bg-blue-50/30"
+                value={generatedFeedback}
+                onChange={(e) => setGeneratedFeedback(e.target.value)}
+              ></textarea>
+            )}
+
+            <button 
+              onClick={handleCopyAndRedirect}
+              disabled={generatingReview}
+              className={`w-full py-3.5 rounded-xl font-medium text-[15px] transition-all flex items-center justify-center gap-2 ${
+                generatingReview 
+                  ? 'bg-gray-100 text-gray-400' 
+                  : copied 
+                    ? 'bg-green-600 text-white'
+                    : 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg'
+              }`}
+            >
+              {copied ? (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                  Copied! Redirecting...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                  Copy & Post on Google
+                </>
+              )}
+            </button>
           </div>
         ) : (
           <div className="animate-fade-in">
