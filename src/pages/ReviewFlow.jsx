@@ -14,6 +14,8 @@ export default function ReviewFlow() {
   const [hoverRating, setHoverRating] = useState(0);
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [feedback, setFeedback] = useState('');
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [mediaFile, setMediaFile] = useState(null);
   const [mediaPreview, setMediaPreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -112,6 +114,8 @@ export default function ReviewFlow() {
     formData.append('funnel_id', funnel.id);
     formData.append('rating', rating);
     formData.append('feedback_text', feedback);
+    formData.append('customer_name', name);
+    formData.append('customer_phone', phone);
     if (mediaFile) {
       formData.append('media', mediaFile);
     }
@@ -177,8 +181,8 @@ export default function ReviewFlow() {
         {showFeedbackForm && (
           <button 
             onClick={submitFeedback}
-            disabled={submitting || (!feedback && !mediaFile)}
-            className={`px-4 py-1.5 rounded-full text-sm font-medium ${(!feedback && !mediaFile) || submitting ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+            disabled={submitting || (!feedback && !mediaFile && !name && !phone)}
+            className={`px-4 py-1.5 rounded-full text-sm font-medium ${(!feedback && !mediaFile && !name && !phone) || submitting ? 'bg-gray-100 text-gray-400' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
           >
             {submitting ? 'Posting...' : 'Post'}
           </button>
@@ -281,12 +285,34 @@ export default function ReviewFlow() {
               ))}
             </div>
 
+            <div className="flex gap-3 mb-4">
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2.5 text-[15px] border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 placeholder-gray-400 transition-all"
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Phone number</label>
+                <input
+                  type="tel"
+                  className="w-full px-3 py-2.5 text-[15px] border border-gray-200 rounded-lg outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 placeholder-gray-400 transition-all"
+                  placeholder="+91 00000 00000"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+              </div>
+            </div>
+
             <textarea
               className="w-full h-40 text-[15px] resize-none outline-none placeholder-gray-500"
               placeholder="Share details of your own experience at this place"
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
-              autoFocus
             ></textarea>
 
             {mediaPreview && (
