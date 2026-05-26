@@ -267,7 +267,7 @@ export default function ReviewFlow() {
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
                   key={star}
-                  onClick={() => setRating(star)}
+                  onClick={() => handleRating(star)}
                   className="p-1"
                 >
                   <Star
