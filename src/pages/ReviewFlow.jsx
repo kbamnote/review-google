@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { Star, Camera, X, ArrowLeft } from 'lucide-react';
 
-const API_BASE = 'https://tapify-backend-production.up.railway.app/api/reviews';
+const API_BASE = 'https://app.tapify.co.in/api/reviews';
 
 export default function ReviewFlow() {
   const { slug } = useParams();
