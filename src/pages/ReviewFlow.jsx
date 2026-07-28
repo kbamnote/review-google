@@ -1,9 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { Star, Camera, X, ArrowLeft } from 'lucide-react';
+import { Star, Camera, X, ArrowLeft, RefreshCw } from 'lucide-react';
+import { REVIEW_TEMPLATES, fillTemplate } from '../data/reviewTemplates';
 
 const API_BASE = 'https://app.tapify.co.in/api/reviews';
+
+// The AI call had no timeout, so a hanging upstream left the customer stuck on
+// "AI is writing your review..." with no way forward. Past this we stop waiting
+// and serve a review from the local bank instead.
+const AI_TIMEOUT_MS = 8000;
 
 export default function ReviewFlow() {
   const { slug } = useParams();
@@ -24,11 +30,27 @@ export default function ReviewFlow() {
   const [showPositiveFeedbackScreen, setShowPositiveFeedbackScreen] = useState(false);
   const [generatedFeedback, setGeneratedFeedback] = useState('');
   const [generatingReview, setGeneratingReview] = useState(false);
+  const [swapping, setSwapping] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Draw-without-replacement over the local bank. A customer tapping "Show me a
+  // different one" must never be handed a line they have already seen, and two
+  // customers scanning the same code must not paste identical text onto Google —
+  // duplicate reviews are the clearest signal of fake-review activity there is.
+  const usedIdx = useRef(new Set());
+  const pickLocalReview = useCallback((businessName) => {
+    if (usedIdx.current.size >= REVIEW_TEMPLATES.length) usedIdx.current.clear();
+    let i;
+    do {
+      i = Math.floor(Math.random() * REVIEW_TEMPLATES.length);
+    } while (usedIdx.current.has(i));
+    usedIdx.current.add(i);
+    return fillTemplate(REVIEW_TEMPLATES[i], businessName);
+  }, []);
 
   useEffect(() => {
     // Fetch funnel and log scan
-    axios.get(`${API_BASE}/public_get_funnel.php?slug=${slug}`)
+    axios.get(`${API_BASE}/public_get_funnel.php?slug=${encodeURIComponent(slug)}`, { timeout: AI_TIMEOUT_MS })
       .then(res => {
         if (res.data.success) {
           setFunnel(res.data.data);
@@ -40,33 +62,50 @@ export default function ReviewFlow() {
       .finally(() => setLoading(false));
   }, [slug]);
 
+  /**
+   * Fetch a review: AI first, local bank as the safety net.
+   *
+   * `avoid` is the text currently on screen. If the AI hands back something we
+   * are already showing (or nothing usable), we serve from the bank instead —
+   * otherwise pressing "Show me a different one" could appear to do nothing.
+   */
+  const fetchReview = useCallback(async (businessName, avoid = '') => {
+    try {
+      const aiRes = await axios.post(
+        `${API_BASE}/public_generate_review.php`,
+        { business_name: businessName },
+        { timeout: AI_TIMEOUT_MS }
+      );
+      const text = (aiRes?.data?.data?.text || '').trim();
+      if (aiRes?.data?.success && text && text !== avoid.trim()) return text;
+    } catch (e) {
+      console.error('AI review unavailable, using local bank:', e?.message || e);
+    }
+    return pickLocalReview(businessName);
+  }, [pickLocalReview]);
+
   const handleRating = async (selectedRating) => {
     setRating(selectedRating);
-    
+
     if (selectedRating >= 4) {
-      // 4-5 stars: Show positive feedback screen and generate AI review
+      // 4-5 stars: Show positive feedback screen and generate a review
       setShowPositiveFeedbackScreen(true);
       setGeneratingReview(true);
-      
-      try {
-        const aiRes = await axios.post(`${API_BASE}/public_generate_review.php`, { 
-          business_name: funnel.business_name 
-        });
-        if (aiRes.data.success) {
-          setGeneratedFeedback(aiRes.data.data.text);
-        } else {
-          setGeneratedFeedback(`I had a fantastic experience with ${funnel.business_name || 'this business'}. Highly recommended!`);
-        }
-      } catch (e) { 
-        console.error(e);
-        setGeneratedFeedback(`I had a fantastic experience with ${funnel.business_name || 'this business'}. Highly recommended!`);
-      }
-      
+      setGeneratedFeedback(await fetchReview(funnel.business_name));
       setGeneratingReview(false);
     } else {
       // 1-3 stars: Show private feedback form
       setShowFeedbackForm(true);
     }
+  };
+
+  /** "Show me a different one" — swap the suggestion without losing the screen. */
+  const regenerateReview = async () => {
+    if (swapping || generatingReview) return;
+    setSwapping(true);
+    setCopied(false);   // the text is changing, so a previous "Copied!" is stale
+    setGeneratedFeedback(await fetchReview(funnel.business_name, generatedFeedback));
+    setSwapping(false);
   };
 
   const handleCopyAndRedirect = async () => {
@@ -229,17 +268,37 @@ export default function ReviewFlow() {
             </p>
 
             {generatingReview ? (
-              <div className="w-full h-32 flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-gray-200 mb-6">
+              <div className="w-full h-32 flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-gray-200 mb-3">
                 <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mb-3"></div>
-                <p className="text-sm text-gray-500">AI is writing your review...</p>
+                <p className="text-sm text-gray-500">Writing your review...</p>
               </div>
             ) : (
-              <textarea
-                className="w-full h-32 p-4 text-[15px] resize-none outline-none border border-blue-200 focus:border-blue-500 rounded-xl shadow-sm mb-6 bg-blue-50/30"
-                value={generatedFeedback}
-                onChange={(e) => setGeneratedFeedback(e.target.value)}
-              ></textarea>
+              <div className="w-full relative mb-3">
+                <textarea
+                  className="w-full h-32 p-4 text-[15px] resize-none outline-none border border-blue-200 focus:border-blue-500 rounded-xl shadow-sm bg-blue-50/30 disabled:opacity-60"
+                  value={generatedFeedback}
+                  disabled={swapping}
+                  onChange={(e) => { setGeneratedFeedback(e.target.value); setCopied(false); }}
+                ></textarea>
+                {swapping && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-white/60">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                  </div>
+                )}
+              </div>
             )}
+
+            {/* Every customer scanning this code should paste something different
+                onto Google, so the suggestion is always swappable. */}
+            <button
+              type="button"
+              onClick={regenerateReview}
+              disabled={generatingReview || swapping}
+              className="mb-6 inline-flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${swapping ? 'animate-spin' : ''}`} />
+              {swapping ? 'Finding another…' : 'Show me a different one'}
+            </button>
 
             <button 
               onClick={handleCopyAndRedirect}
